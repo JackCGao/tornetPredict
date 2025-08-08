@@ -32,6 +32,7 @@ def add_coordinates(d,min_range_m=2125.0,
                     include_az=include_az,
                     tilt_last=tilt_last,
                     backend=backend)
+    d['coordinates']=c
     return d
 
 def compute_coordinates(d,min_range_m=2125.0,
@@ -96,30 +97,46 @@ def compute_coordinates(d,min_range_m=2125.0,
     else:
         c = backend.stack( (R,Rinv), axis=cat_axis )
     return c
-    
 
+def remove_time_dim(d):
+    """
+    Removes time dimension from data by taking last available frame
+    """
+    for v in d:
+        if isinstance(d[v], np.ndarray) and d[v].ndim > 0:
+            d[v] = d[v][-1]
+    return d
+'''
 def remove_time_dim(d):
     """
     Removes time dimension from data:
     - If a tornado is present in frame_labels, selects the frame before it (if available)
     - Otherwise, selects the last frame
     """
-    labels = d['frame_labels']
+    labels = d['label']
     
     # Find first index of tornado frame
     tornado_indices = np.where(labels > 0)[0]
 
     if len(tornado_indices) > 0 and tornado_indices[0] > 0:
-        t = tornado_indices[0] - 1
+        t = tornado_indices[0] - 2
     else:
         t = -1  # fallback: last frame
+        
+    if len(tornado_indices) > 0:
+        original_idx = tornado_indices[0]
+        labels[original_idx] = 0  # zero out old tornado label
+        # Set tornado label at new index to 1 or the same value as original?
+        # Assuming 1 here (adjust if you want to keep original label value)
+        labels[t] = 1
 
     for v in d:
         if isinstance(d[v], np.ndarray) and d[v].ndim > 0:
+            print(f"{v} before: {d[v].shape}")
             d[v] = d[v][t]
-
+            print(f"{v} after: {d[v].shape}")
     return d
-
+'''
 
 def add_batch_dim(data: Dict[str,np.ndarray]):
     """
