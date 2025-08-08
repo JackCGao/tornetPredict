@@ -11,6 +11,7 @@ Delivered to the U.S. Government with Unlimited Rights, as defined in DFARS Part
 """
 from typing import Dict, List
 import numpy as np
+import torch
 from tornet.data.constants import ALL_VARIABLES
 
 
@@ -31,7 +32,6 @@ def add_coordinates(d,min_range_m=2125.0,
                     include_az=include_az,
                     tilt_last=tilt_last,
                     backend=backend)
-    d['coordinates']=c
     return d
 
 def compute_coordinates(d,min_range_m=2125.0,
@@ -66,10 +66,23 @@ def compute_coordinates(d,min_range_m=2125.0,
     az_lower = (90-az_lower) * np.pi/180 # [1,]
     az_upper = d['az_upper']
     az_upper = (90-az_upper) * np.pi/180 # [1,]
+
+    if backend.__name__ == 'torch':
+        # Convert numpy arrays to scalars
+        az_lower_scalar = float(az_lower.item() if hasattr(az_lower, 'item') else az_lower)
+        az_upper_scalar = float(az_upper.item() if hasattr(az_upper, 'item') else az_upper)
+        rng_lower_scalar = float(rng_lower.item() if hasattr(rng_lower, 'item') else rng_lower)
+        rng_upper_scalar = float(rng_upper.item() if hasattr(rng_upper, 'item') else rng_upper)
+        
+        # create mesh grids
+        az = backend.linspace(az_lower_scalar, az_upper_scalar, shape[0])
+        rg = backend.linspace(rng_lower_scalar, rng_upper_scalar, shape[1])
+    else:
+        # For numpy and tensorflow, use arrays directly
+        az = backend.linspace(az_lower, az_upper, shape[0])
+        rg = backend.linspace(rng_lower, rng_upper, shape[1])
     
-    # create mesh grids 
-    az = backend.linspace( az_lower,  az_upper, shape[0] )
-    rg = backend.linspace( rng_lower, rng_upper, shape[1] )
+    
     R,A = backend.meshgrid(rg,az,indexing='xy')
 
     # limit to minimum range of radar
@@ -87,11 +100,26 @@ def compute_coordinates(d,min_range_m=2125.0,
 
 def remove_time_dim(d):
     """
-    Removes time dimension from data by taking last available frame
+    Removes time dimension from data:
+    - If a tornado is present in frame_labels, selects the frame before it (if available)
+    - Otherwise, selects the last frame
     """
+    labels = d['frame_labels']
+    
+    # Find first index of tornado frame
+    tornado_indices = np.where(labels > 0)[0]
+
+    if len(tornado_indices) > 0 and tornado_indices[0] > 0:
+        t = tornado_indices[0] - 1
+    else:
+        t = -1  # fallback: last frame
+
     for v in d:
-        d[v] = d[v][-1]
+        if isinstance(d[v], np.ndarray) and d[v].ndim > 0:
+            d[v] = d[v][t]
+
     return d
+
 
 def add_batch_dim(data: Dict[str,np.ndarray]):
     """
